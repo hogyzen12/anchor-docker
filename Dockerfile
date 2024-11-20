@@ -54,5 +54,19 @@ ENV PATH="/usr/src/app/solana/bin:${PATH}"
 RUN source $HOME/.cargo/env && \
     solana --version
 
+# Install Anchor CLI
+RUN source $HOME/.cargo/env && \
+    cargo install --git https://github.com/coral-xyz/anchor --tag v0.30.1 anchor-cli --locked
+
+# Verify Anchor installation
+RUN source $HOME/.cargo/env && \
+    anchor --version
+
+# Install Node.js 20.x
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && npm install -g npm@latest \
+    && rm -rf /var/lib/apt/lists/*
+
 # Set the entrypoint to bash
 ENTRYPOINT ["/bin/bash"]
