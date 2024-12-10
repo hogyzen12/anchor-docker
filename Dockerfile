@@ -1,9 +1,15 @@
 # Use Ubuntu as the base image
-FROM ubuntu:22.04
+FROM --platform=linux/amd64 ubuntu:22.04
 
 # Set environment variables to prevent user prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH="/root/.cargo/bin:${PATH}"
+ENV PLATFORM_TOOLS_VERSION=v1.43
+ENV PLATFORM_TOOLS_ARCH=x86_64
+
+# Add build argument for Anchor version
+ARG ANCHOR_VERSION=v0.30.1
+ARG SOLANA_PRIVATE_KEY=""
 
 # Set the working directory inside the container
 WORKDIR /usr/src/app
@@ -26,6 +32,7 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     libclang-dev \
+    emacs \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust using rustup
@@ -54,9 +61,19 @@ ENV PATH="/usr/src/app/solana/bin:${PATH}"
 RUN source $HOME/.cargo/env && \
     solana --version
 
-# Install Anchor CLI
+# Install Anchor CLI with specified version
 RUN source $HOME/.cargo/env && \
-    cargo install --git https://github.com/coral-xyz/anchor --tag v0.30.1 anchor-cli --locked
+    cargo install --git https://github.com/coral-xyz/anchor --tag ${ANCHOR_VERSION} anchor-cli --locked
+
+# Pre-download platform tools
+RUN mkdir -p ~/.local/share/platform-tools && \
+    cd ~/.local/share/platform-tools && \
+    wget https://github.com/anza-xyz/platform-tools/releases/download/v1.43/platform-tools-linux-x86_64.tar.bz2 && \
+    tar -xjf platform-tools-linux-x86_64.tar.bz2 && \
+    rm platform-tools-linux-x86_64.tar.bz2
+
+# Add platform tools to PATH
+ENV PATH="/root/.local/share/platform-tools/platform-tools/bin:${PATH}"
 
 # Verify Anchor installation
 RUN source $HOME/.cargo/env && \
@@ -68,5 +85,29 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && npm install -g npm@latest \
     && rm -rf /var/lib/apt/lists/*
 
-# Set the entrypoint to bash
-ENTRYPOINT ["/bin/bash"]
+RUN cd /usr/src/app/ && \
+    anchor init testbuild && \
+    cd testbuild
+
+RUN rustup install 1.75.0
+RUN rustup default 1.75.0
+RUN rm Cargo.lock && cargo clean && cargo generate-lockfile
+
+RUN cd /usr/src/app/testbuild && anchor build
+# Extract program ID and update lib.rs (fixed escaping)
+RUN cd /usr/src/app/testbuild && \
+    PROGRAM_ID=$(anchor keys list | grep -oP "(?<=: ).*") && \
+    find ./programs -name "lib.rs" -exec sed -i 's/declare_id!("[^"]*")/declare_id!("'"$PROGRAM_ID"'")/' {} \;
+
+# Final build with updated program ID
+RUN cd /usr/src/app/testbuild && anchor build
+
+# Copy the key setup script
+COPY setup-solana-key.sh /usr/src/app/
+RUN chmod +x /usr/src/app/setup-solana-key.sh
+
+# Set final working directory to testbuild
+WORKDIR /usr/src/app/testbuild
+
+# Use an entrypoint script to handle key setup and then run bash
+ENTRYPOINT ["/usr/src/app/setup-solana-key.sh", "${SOLANA_PRIVATE_KEY}", "&&", "/bin/bash"]
