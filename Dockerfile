@@ -99,15 +99,12 @@ RUN cd /usr/src/app/testbuild && \
     PROGRAM_ID=$(anchor keys list | grep -oP "(?<=: ).*") && \
     find ./programs -name "lib.rs" -exec sed -i 's/declare_id!("[^"]*")/declare_id!("'"$PROGRAM_ID"'")/' {} \;
 
-# Final build with updated program ID
-RUN cd /usr/src/app/testbuild && anchor build
-
-# Copy the key setup script
-COPY setup-solana-key.sh /usr/src/app/
-RUN chmod +x /usr/src/app/setup-solana-key.sh
+# Copy the entrypoint script
+COPY docker-entrypoint.sh /usr/src/app/
+RUN chmod +x /usr/src/app/docker-entrypoint.sh
 
 # Set final working directory to testbuild
 WORKDIR /usr/src/app/testbuild
 
-# Use an entrypoint script to handle key setup and then run bash
-ENTRYPOINT ["/usr/src/app/setup-solana-key.sh", "${SOLANA_PRIVATE_KEY}", "&&", "/bin/bash"]
+# Use the entrypoint script
+ENTRYPOINT ["/usr/src/app/docker-entrypoint.sh"]
